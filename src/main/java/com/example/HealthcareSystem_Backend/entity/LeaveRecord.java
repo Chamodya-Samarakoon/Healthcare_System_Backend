@@ -11,16 +11,33 @@ import java.time.LocalDate;
 @NoArgsConstructor
 @AllArgsConstructor
 public class LeaveRecord {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne
+    @ManyToOne(optional = false)
     @JoinColumn(name = "employee_id", nullable = false)
     private Employee employee;
+
+    @Enumerated(EnumType.STRING)
+    private LeaveType leaveType;
 
     private LocalDate startDate;
     private LocalDate endDate;
     private String reason;
-    private String status; // PENDING, APPROVED, REJECTED
+
+    @Enumerated(EnumType.STRING)
+    @Builder.Default
+    private LeaveStatus status = LeaveStatus.PENDING;
+
+    private String approvedBy;
+
+    public enum LeaveType {
+        CASUAL, SICK, ANNUAL, MATERNITY, EMERGENCY
+    }
+
+    public enum LeaveStatus {
+        PENDING, APPROVED, REJECTED
+    }
 }

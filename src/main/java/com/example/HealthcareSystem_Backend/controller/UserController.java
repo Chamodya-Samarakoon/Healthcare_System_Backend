@@ -4,6 +4,7 @@ import com.example.HealthcareSystem_Backend.dto.AuthDTOs.UserRequest;
 import com.example.HealthcareSystem_Backend.entity.User;
 import com.example.HealthcareSystem_Backend.repository.UserRepository;
 import com.example.HealthcareSystem_Backend.service.HospitalServices;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -15,19 +16,29 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/users")
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('ADMIN')")
 public class UserController {
 
-    private final HospitalServices hospitalServices;
     private final UserRepository userRepository;
+    private final HospitalServices hospitalServices;
 
     @GetMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<List<User>> getAllUsers() {
         return ResponseEntity.ok(userRepository.findAll());
     }
 
     @PostMapping
-    public ResponseEntity<User> createUser(@RequestBody UserRequest request, Authentication auth) {
-        return ResponseEntity.ok(hospitalServices.createUser(request, auth.getName()));
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<User> createUser(@Valid @RequestBody UserRequest req, Authentication auth) {
+        String admin = (auth != null) ? auth.getName() : "ADMIN";
+        return ResponseEntity.ok(hospitalServices.createUser(req, admin));
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Void> deleteUser(@PathVariable Long id, Authentication auth) {
+        String admin = (auth != null) ? auth.getName() : "ADMIN";
+        hospitalServices.deleteUser(id, admin);
+        return ResponseEntity.noContent().build();
     }
 }

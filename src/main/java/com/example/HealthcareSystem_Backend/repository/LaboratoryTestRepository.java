@@ -15,4 +15,6 @@ public interface LaboratoryTestRepository extends JpaRepository<LaboratoryTest, 
     void deleteByPatientId(Long patientId);
 
     void deleteByStatus(LaboratoryTest.LabStatus status);
+
+    List<LaboratoryTest> findByPatientIdIn(List<Long> patientIds);
 }

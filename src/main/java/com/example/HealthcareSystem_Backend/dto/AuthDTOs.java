@@ -39,4 +39,18 @@ public class AuthDTOs {
         private String email;
         private Role role;
     }
+
+    @Data
+    @AllArgsConstructor
+    @NoArgsConstructor
+    public static class ResetPasswordRequest {
+        @NotBlank(message = "Username is required")
+        private String username;
+
+        @NotBlank(message = "Email is required")
+        private String email;
+
+        @NotBlank(message = "New password is required")
+        private String newPassword;
+    }
 }

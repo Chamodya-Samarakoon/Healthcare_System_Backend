@@ -33,4 +33,14 @@ public class LaboratoryTest {
     public enum LabStatus {
         REQUESTED, SAMPLE_COLLECTED, COMPLETED, CANCELLED
     }
+
+    @PrePersist
+    protected void onCreate() {
+        if (this.requestedDate == null) {
+            this.requestedDate = LocalDateTime.now();
+        }
+        if (this.status == null) {
+            this.status = LabStatus.REQUESTED;
+        }
+    }
 }

@@ -12,6 +12,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.security.Principal;
 import java.util.List;
 import java.util.Map;
 
@@ -62,5 +63,16 @@ public class AppointmentController {
                 "Updated appointment #" + id + " status to " + newStatus);
 
         return ResponseEntity.ok(updated);
+    }
+
+    // Fixed mapping: now resolves to PUT /api/appointments/{id}
+    @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Appointment> updateAppointment(
+            @PathVariable Long id,
+            @RequestBody AppointmentRequest req,
+            Principal principal) {
+        String adminUser = (principal != null) ? principal.getName() : "ADMIN";
+        return ResponseEntity.ok(hospitalServices.updateAppointment(id, req, adminUser));
     }
 }
