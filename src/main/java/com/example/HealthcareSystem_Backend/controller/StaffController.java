@@ -4,6 +4,7 @@ import com.example.HealthcareSystem_Backend.entity.*;
 import com.example.HealthcareSystem_Backend.exception.BadRequestException;
 import com.example.HealthcareSystem_Backend.exception.ResourceNotFoundException;
 import com.example.HealthcareSystem_Backend.repository.*;
+import com.example.HealthcareSystem_Backend.service.HospitalServices;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -15,6 +16,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
+import java.security.Principal;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.*;
@@ -32,6 +34,7 @@ public class StaffController {
     private final UserRepository userRepository;
     private final DoctorRepository doctorRepository;
     private final PasswordEncoder passwordEncoder;
+    private final HospitalServices hospitalServices;
 
     // --- 1. Employee Management ---
 
@@ -189,6 +192,14 @@ public class StaffController {
         return ResponseEntity.ok(employeeRepository.save(emp));
     }
 
+    @DeleteMapping("/employees/{id}")
+    @PreAuthorize("hasAuthority('ADMIN') or hasRole('ADMIN')")
+    public ResponseEntity<?> deleteEmployee(@PathVariable Long id, Principal principal) {
+        String adminUsername = (principal != null) ? principal.getName() : "ADMIN";
+        hospitalServices.deleteEmployee(id, adminUsername);
+        return ResponseEntity.ok(Map.of("message", "Employee deleted successfully"));
+    }
+
     // --- 2. Attendance ---
 
     @GetMapping("/attendance")
@@ -207,7 +218,6 @@ public class StaffController {
         }
         Long staffId = Long.valueOf(payload.get("employeeId").toString());
 
-        // Resolve or auto-provision Employee
         Employee emp = resolveOrProvisionEmployee(staffId);
 
         LocalDate today = LocalDate.now();
@@ -273,13 +283,11 @@ public class StaffController {
     // --- Helper Methods ---
 
     private Employee resolveOrProvisionEmployee(Long staffId) {
-        // 1. Direct Employee match
         Optional<Employee> empOpt = employeeRepository.findById(staffId);
         if (empOpt.isPresent()) {
             return empOpt.get();
         }
 
-        // 2. Fallback: match User entity and provision
         Optional<User> userOpt = userRepository.findById(staffId);
         if (userOpt.isPresent()) {
             User u = userOpt.get();
@@ -287,7 +295,6 @@ public class StaffController {
                     ? u.getEmail()
                     : u.getUsername() + "@medicore.com";
 
-            // If an Employee already exists with this email, link to that Employee
             return employeeRepository.findAll().stream()
                     .filter(e -> e.getEmail().equalsIgnoreCase(email))
                     .findFirst()
@@ -306,7 +313,6 @@ public class StaffController {
                     });
         }
 
-        // 3. Fallback: match Doctor entity and provision
         Optional<Doctor> docOpt = doctorRepository.findById(staffId);
         if (docOpt.isPresent()) {
             Doctor d = docOpt.get();

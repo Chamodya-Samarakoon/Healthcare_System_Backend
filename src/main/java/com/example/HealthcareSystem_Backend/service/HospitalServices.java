@@ -18,6 +18,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -38,6 +39,8 @@ public class HospitalServices {
     private final AdmissionRepository admissionRepository;
     private final AuditLogRepository auditLogRepository;
     private final EmployeeRepository employeeRepository;
+    private final StaffAttendanceRepository staffAttendanceRepository;
+    private final LeaveRecordRepository leaveRecordRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final AuthenticationManager authManager;
@@ -84,7 +87,7 @@ public class HospitalServices {
                 .build();
         User saved = userRepository.save(user);
 
-        // SYNC 1: Automatically create linked Employee record
+        // SYNC 1: Automatically create or link matching Employee record
         String empEmail = (saved.getEmail() != null && !saved.getEmail().isBlank())
                 ? saved.getEmail()
                 : saved.getUsername() + "@medicore.com";
@@ -104,12 +107,14 @@ public class HospitalServices {
             }
 
             Employee employee = Employee.builder()
+                    .id(saved.getId()) // Explicitly align primary key with User ID
                     .employeeCode("EMP-" + String.format("%04d", saved.getId()))
                     .firstName(firstName)
                     .lastName(lastName)
                     .email(empEmail)
                     .designation(formatDesignation(roleName))
                     .status(Employee.EmploymentStatus.ACTIVE)
+                    .active(true)
                     .dateOfJoining(LocalDate.now())
                     .build();
 
@@ -225,6 +230,7 @@ public class HospitalServices {
                     .designation(savedDoctor.getSpecialization())
                     .department(dept)
                     .status(Employee.EmploymentStatus.ACTIVE)
+                    .active(true)
                     .dateOfJoining(LocalDate.now())
                     .build();
             employeeRepository.save(emp);
@@ -486,6 +492,68 @@ public class HospitalServices {
                 "Deleted staff account: " + user.getUsername() + " (" + user.getRole() + ")");
     }
 
+    // --- Staff / Employee Operations ---
+    @Transactional
+    public void deleteEmployee(Long employeeId, String adminUsername) {
+        // 1. Try finding by direct Employee entity ID
+        Optional<Employee> empOpt = employeeRepository.findById(employeeId);
+        if (empOpt.isPresent()) {
+            Employee employee = empOpt.get();
+            String empEmail = employee.getEmail();
+
+            // Clear any attendance records pointing to this employee
+            staffAttendanceRepository.findAll().stream()
+                    .filter(a -> a.getEmployee() != null && a.getEmployee().getId().equals(employeeId))
+                    .forEach(staffAttendanceRepository::delete);
+
+            // Clear any leave requests pointing to this employee
+            leaveRecordRepository.findAll().stream()
+                    .filter(l -> l.getEmployee() != null && l.getEmployee().getId().equals(employeeId))
+                    .forEach(leaveRecordRepository::delete);
+
+            employeeRepository.delete(employee);
+
+            // Clean up corresponding user/doctor account if one exists with the same email
+            if (empEmail != null && !empEmail.isBlank()) {
+                userRepository.findAll().stream()
+                        .filter(u -> empEmail.equalsIgnoreCase(u.getEmail()))
+                        .findFirst()
+                        .ifPresent(user -> {
+                            if (!user.getUsername().equalsIgnoreCase(adminUsername)) {
+                                doctorRepository.findByUserId(user.getId()).ifPresent(doc -> {
+                                    appointmentRepository.deleteByDoctorId(doc.getId());
+                                    medicalRecordRepository.deleteByDoctorId(doc.getId());
+                                    doctorRepository.delete(doc);
+                                });
+                                userRepository.delete(user);
+                            }
+                        });
+            }
+
+            recordAudit(adminUsername, "DELETE", "STAFF",
+                    "Deleted employee: " + employee.getEmployeeCode() + " (" + employee.getFirstName() + " "
+                            + employee.getLastName() + ")");
+            return;
+        }
+
+        // 2. Fallback: Staff record originates from a User account (ID matches User.id)
+        Optional<User> userOpt = userRepository.findById(employeeId);
+        if (userOpt.isPresent()) {
+            deleteUser(userOpt.get().getId(), adminUsername);
+            return;
+        }
+
+        // 3. Fallback: Staff record originates from a Doctor entity (ID matches
+        // Doctor.id)
+        Optional<Doctor> docOpt = doctorRepository.findById(employeeId);
+        if (docOpt.isPresent()) {
+            deleteDoctor(docOpt.get().getId(), adminUsername);
+            return;
+        }
+
+        throw new ResourceNotFoundException("Staff record not found with id: " + employeeId);
+    }
+
     // --- Inpatient & Admission Operations ---
     @Transactional
     public Admission admitPatient(Admission admission, String username) {
@@ -496,7 +564,6 @@ public class HospitalServices {
         Patient patient = patientRepository.findById(admission.getPatient().getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Patient not found"));
 
-        // 1. Prevent admitting a patient who is already admitted
         if (admissionRepository.existsByPatientIdAndStatus(patient.getId(), "ADMITTED")) {
             throw new BadRequestException("Patient " + patient.getFirstName() + " " + patient.getLastName()
                     + " is already currently admitted in a ward.");
@@ -509,8 +576,6 @@ public class HospitalServices {
             throw new BadRequestException("Ward number and bed number are required.");
         }
 
-        // 2. Prevent duplicate bed assignment: Check if bed is already occupied by an
-        // active patient
         boolean isBedOccupied = admissionRepository.existsByWardNumberIgnoreCaseAndBedNumberIgnoreCaseAndStatus(
                 ward, bed, "ADMITTED");
 
